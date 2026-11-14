@@ -16,7 +16,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none
 #tj{right:24px;bottom:24px;width:100px;height:100px}
 #tp{top:10px;right:10px;bottom:auto;width:56px;height:56px;font-size:18px}
 body.touch .tb{display:flex}
-#ti{position:fixed;left:-2000px;top:0;width:10px;height:10px;opacity:0}
+#ti{position:fixed;left:0;top:0;width:200px;height:24px;opacity:0;font-size:16px;border:0;padding:0;background:transparent;color:transparent;caret-color:transparent;z-index:5}
 </style>
 </head>
 <body>
@@ -311,7 +311,16 @@ ti.addEventListener('keydown',e=>{
   if(e.key==='Enter'){e.preventDefault();menuQ.push('textok');}
   else if(e.key==='Escape'){e.preventDefault();menuQ.push('back');}
 });
-cv.addEventListener('pointerdown',()=>{if(state==='text')ti.focus();});
+function placeTi(){
+  // o campo invisível fica exatamente em cima do campo de digitação do jogo,
+  // assim o toque cai nele direto (gesto do usuário) e o teclado não some
+  const r=cv.getBoundingClientRect(),s=r.width/W;
+  ti.style.left=(r.left+20*s)+'px';
+  ti.style.top=(r.top+88*s)+'px';
+  ti.style.width=(216*s)+'px';
+  ti.style.height=(24*s)+'px';
+}
+addEventListener('resize',()=>{if(state==='text')placeTi();});
 
 function bindBtn(id,fn,act){
   const el=document.getElementById(id);
@@ -339,7 +348,8 @@ function padEdge(k,i){
   }
 }
 function pollPads(){
-  const list=navigator.getGamepads?navigator.getGamepads():[];
+  let list=[];
+  try{list=navigator.getGamepads?navigator.getGamepads():[];}catch(e){list=[];}
   const gps=[];
   for(const g of list)if(g)gps.push(g);
   for(let i=0;i<2;i++){
@@ -632,7 +642,8 @@ function openText(label,secret,onOk,backState){
   state='text';
   ti.value='';
   ti.type=secret?'password':'text';
-  setTimeout(()=>ti.focus(),0);
+  placeTi();
+  if(!TOUCH)setTimeout(()=>ti.focus(),0);
 }
 
 /* ---------- REDE (PeerJS / WebRTC) ---------- */
@@ -768,7 +779,7 @@ function update(){
   if(state==='text'){
     for(const a of acts){
       if(a==='back'){state=tmode.back;ti.blur();net.msg='';break;}
-      if(a==='textok'){
+      if(a==='textok'||a==='ok'){
         const v=ti.value.trim();
         if(!v){net.msg='DIGITE ALGO';msgT=120;}
         else{ti.blur();tmode.onOk(v);}
@@ -837,10 +848,11 @@ function update(){
     for(const a of acts){
       if(a==='back'){resumeGame();break;}
       else if(a==='up'||a==='left')pauseSel=Math.max(0,pauseSel-1);
-      else if(a==='down'||a==='right')pauseSel=Math.min(2,pauseSel+1);
+      else if(a==='down'||a==='right')pauseSel=Math.min(3,pauseSel+1);
       else if(a==='ok'){
         if(pauseSel===0)resumeGame();
         else if(pauseSel===1)quitToMenu();
+        else if(pauseSel===2)toggleFS();
         else{state='options';optRow=0;optFromPause=true;}
         break;
       }
@@ -1040,7 +1052,8 @@ function drawTitle(){
   drawBG(true);
   txt('LIRA E PIRA',W/2,26,'#ffd23f',3,'center');
   txt('A GRANDE AVENTURA',W/2,54,'#fff',1,'center');
-  TITLE_OPTS.forEach((o,i)=>{
+  TITLE_OPTS.forEach((o0,i)=>{
+    const o=(i===4&&document.fullscreenElement)?'SAIR DA TELA CHEIA':o0;
     const sel=mode_===i;
     const dis=(i===1&&TOUCH);
     txt((sel?'> ':'  ')+o,W/2,80+i*16,dis?'#666':(sel?'#fff':'#bbb'),2,'center');
@@ -1071,7 +1084,7 @@ function drawText(){
   rc(20,90,216,20,'rgba(255,255,255,.2)');
   txt(shown,W/2,96,'#fff',1,'center');
   if(net.msg&&msgT>0)txt(net.msg,W/2,128,'#ffd23f',1,'center');
-  txt('ENTER AVANÇA',W/2,190,'#ddd',1,'center');
+  txt(TOUCH?'TOQUE NO CAMPO E DIGITE, A AVANÇA':'ENTER AVANÇA',W/2,190,'#ddd',1,'center');
   txt('ESC VOLTA',W/2,204,'#ddd',1,'center');
 }
 function drawLobby(){
@@ -1121,7 +1134,8 @@ function drawOptions(){
 function drawPause(){
   rc(0,0,W,H,'rgba(0,0,0,.6)');
   txt('PAUSA',W/2,40,'#ffd23f',3,'center');
-  const opts=['VOLTAR AO JOGO','SAIR PARA O MENU','OPÇÕES'];
+  const fs=document.fullscreenElement?'SAIR DA TELA CHEIA':'TELA CHEIA';
+  const opts=['VOLTAR AO JOGO','SAIR PARA O MENU',fs,'OPÇÕES'];
   opts.forEach((o,i)=>txt((pauseSel===i?'> ':'  ')+o,W/2,100+i*20,pauseSel===i?'#fff':'#bbb',2,'center'));
 }
 function drawBoxes(p1Idx,p2Idx,hint){
@@ -1242,6 +1256,7 @@ function drawWorld(){
 }
 function render(){
   document.getElementById('tp').style.display=(TOUCH&&(state==='play'||state==='pause'))?'flex':'none';
+  if(state==='text')placeTi();
   ctx.setTransform(1,0,0,1,0,0);
   ctx.imageSmoothingEnabled=false;
   if(state==='title')return drawTitle();
