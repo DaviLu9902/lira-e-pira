@@ -435,6 +435,7 @@ function respawn(p){
   p.y=gY(p);p.vx=0;p.vy=0;p.onGround=false;p.dead=false;p.inv=120;
 }
 function popup(t,c){
+  if(mode==='tut')return;
   popups.push({t,c,life:120});
   if(popups.length>3)popups.shift();
 }
@@ -599,7 +600,7 @@ function loadLevel(n){
 function genTut(){
   const w=40,g=Array.from({length:14},()=>new Array(w).fill(0));
   for(let x=0;x<w;x++){g[12][x]=1;g[13][x]=1;}
-  g[8][22]=3;g[8][23]=3;
+  g[8][8]=3;g[8][9]=3;
   return {boss:false,w,g,enemies:[],coins:[],flagX:1e9,brk:{},tut:true};
 }
 function startTutorial(){
@@ -612,10 +613,11 @@ function startTutorial(){
   state='play';
 }
 function tutUpdate(){
+  // cada passo fica na tela pelo menos 3 segundos para dar tempo de ler
   tutT++;
-  if(tutStep===0&&tutN>0){tutStep=1;tutT=0;}
-  else if(tutStep===1&&tutM>0){tutStep=2;tutT=0;}
-  else if(tutStep===2&&(L.g[8][22]===0||L.g[8][23]===0)){tutStep=3;tutT=0;}
+  if(tutStep===3||tutT<90)return;
+  const done=(tutStep===0&&tutN>0)||(tutStep===1&&tutM>0)||(tutStep===2&&(L.g[8][8]===0||L.g[8][9]===0));
+  if(done){tutStep++;tutT=0;}
 }
 function nextLevel(){
   if(mode!=='inf'&&lvl>=TOTAL){state='win';endT=900;return;}
@@ -974,7 +976,7 @@ function update(){
     return;
   }
   if(state==='play'){
-    if(mode==='tut'&&tutStep===3&&tutT>40&&acts.includes('ok')){state='title';return;}
+    if(mode==='tut'&&tutStep===3&&tutT>=120&&acts.includes('ok')){state='title';return;}
     if(bossMsg){if(acts.includes('ok'))bossMsg=false;return;}
     if(introT>0){introT--;return;}
     if(clearing){if(--clearT<=0)nextLevel();return;}
@@ -1109,7 +1111,7 @@ function drawTitle(){
     txt((sel?'> ':'  ')+o,W/2,80+i*16,dis?'#666':(sel?'#fff':'#bbb'),2,'center');
   });
   if(net.msg&&msgT>0)txt(net.msg,W/2,170,'#ffd23f',1,'center');
-  txt('VERSÃO: V10',W-4,H-9,'#fff',1,'right');
+  txt('VERSÃO: V11',W-4,H-9,'#fff',1,'right');
 }
 function drawNet(){
   drawBG(true);
@@ -1176,7 +1178,7 @@ function drawOptions(){
   txt(optRow===3?'>':' ',12,rows[3]+1,'#fff',1);
   txt('VOLTAR',24,rows[3]+1,'#fff',1);
 
-  txt('VERSÃO: V10',W-4,H-9,'#fff',1,'right');
+  txt('VERSÃO: V11',W-4,H-9,'#fff',1,'right');
   txt('DIFÍCIL: MAIS INIMIGOS E',W/2,190,'#ddd',1,'center');
   txt('CHEFE COM MAIS VIDA',W/2,200,'#ddd',1,'center');
   txt('ESC VOLTA',W/2,212,'#ddd',1,'center');
