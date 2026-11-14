@@ -95,6 +95,9 @@ const FONT={
 '+':['     ','  #  ','  #  ','#####','  #  ','  #  ','     '],
 '_':['     ','     ','     ','     ','     ','     ','#####'],
 '*':['     ','# # #',' ### ','#####',' ### ','# # #','     '],
+'|':['  #  ','  #  ','  #  ','  #  ','  #  ','  #  ','  #  '],
+'=':['     ','     ','#####','     ','#####','     ','     '],
+'Ê':['  #  ',' # # ','#####','#    ','#### ','#    ','#####'],
 '?':[' ### ','#   #','    #','   # ','  #  ','     ','  #  ']
 };
 function txt(s,x,y,c='#fff',sc=1,al='left'){
@@ -156,7 +159,7 @@ const held=new Set(),jumpQ=[false,false],menuQ=[],touch={l:false,r:false};
 const padPrev=[{},{}];
 let pads=[{L:false,R:false},{L:false,R:false}];
 let remoteL=false,remoteR=false,remoteJ=false;
-const net={role:null,peer:null,conn:null,pw:'',room:'',snap:null,gb:[],msg:'',guestPick:null,hostCh:0};
+const net={role:null,peer:null,conn:null,pw:'',room:'',snap:null,gb:[],gr:[],msg:'',guestPick:null,hostCh:0};
 const ov=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
 const rc=(x,y,w,h,c)=>{ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y),w,h);};
 const solid=(tx,ty)=>{
@@ -232,7 +235,7 @@ function genLevel(n){
     if(g[12][i]&&g[12][i-1]&&g[12][i+1]&&Math.random()<enP)
       enemies.push({x:i*T+2,y:180,w:12,h:12,vx:0,vy:0,dir:-1,dead:false,flat:0});
   }
-  return {boss:false,w:len,g,enemies,coins,flagX:(len-8)*T};
+  return {boss:false,w:len,g,enemies,coins,flagX:(len-8)*T,brk:{}};
 }
 function genBoss(){
   const w=40,g=Array.from({length:14},()=>new Array(w).fill(0));
@@ -242,7 +245,7 @@ function genBoss(){
     const top=Math.ceil(18-Math.sqrt(s));
     for(let y=Math.max(0,top);y<14;y++)g[y][x]=1;
   }
-  return {boss:true,w,g,enemies:[],coins:[],flagX:1e9};
+  return {boss:true,w,g,enemies:[],coins:[],flagX:1e9,brk:{}};
 }
 function makeBoss(){
   return {x:20*T-18,y:60,w:36,h:36,vx:0,vy:0,onGround:false,hp:diff?10:8,max:diff?10:8,inv:0,
@@ -401,8 +404,19 @@ function hurt(p){
   if(p.big){setBig(p,false);p.inv=90;}
   else die(p);
 }
+function respawnBoxes(){
+  if(!L||nP!==2)return;
+  for(const k in L.brk){
+    const r=L.brk[k];
+    if(r.broken&&r.rs<1){
+      L.g[r.ty][r.tx]=3;r.broken=false;r.rs++;
+      if(net.role==='host')net.gr.push([r.tx,r.ty]);
+    }
+  }
+}
 function die(p){
   if(p.dead||p.out)return;
+  respawnBoxes();
   p.lives--;setBig(p,false);p.mega=false;p.vx=0;p.vy=0;
   if(p.lives<=0){p.out=true;p.lives=0;}
   else{p.dead=true;p.respawnT=100;}
@@ -425,23 +439,28 @@ function popup(t,c){
 }
 function breakBox(tx,ty,p){
   L.g[ty][tx]=0;
+  const key=tx+','+ty;
+  const rec=L.brk[key]||(L.brk[key]={tx,ty,rs:0});
+  rec.broken=true;
   if(net.role==='host')net.gb.push([tx,ty]);
   SFX.brk();
-  const nm=CHARS[p.ch].name,col=CHARS[p.ch].shirt,r=Math.random();
-  if(r<0.15){
+  const nm=CHARS[p.ch].name,col=CHARS[p.ch].shirt,r=Math.floor(Math.random()*5);
+  if(r===0){
     p.lives++;SFX.item();
     popup(nm+' +1 VIDA',col);
-  }else if(r<0.5){
+  }else if(r===1){
     const was=p.big;setBig(p,true);SFX.item();
     popup(was?nm+' MEDALHA (JÁ MAIOR)':nm+' MEDALHA: CRESCE',col);
   }else{
-    p.coins+=5;SFX.coin();
-    popup(nm+' +5 MOEDAS',col);
+    const n=r===2?5:r===3?10:20;
+    p.coins+=n;SFX.coin();
+    popup(nm+' +'+n+' MOEDAS',col);
     if(p.coins>=100){p.coins-=100;p.lives++;popup(nm+' +1 VIDA (100 MOEDAS)',col);}
   }
 }
 function updatePlayer(p,i){
   if(p.dead){if(--p.respawnT<=0)respawn(p);return;}
+  if(p.done){p.pb=p.y+p.h;return;}
   p.pb=p.y+p.h;
   if(p.inv>0)p.inv--;
   if(p.held)return;
@@ -469,7 +488,7 @@ function collectCoins(){
   for(const c of L.coins){
     if(c.got)continue;
     for(const p of players){
-      if(p.out||p.dead||p.held)continue;
+      if(p.out||p.dead||p.held||p.done)continue;
       if(ov(p,{x:c.x,y:c.y,w:8,h:8})){
         c.got=true;p.coins++;SFX.coin();
         if(p.coins>=100){p.coins-=100;p.lives++;popup(CHARS[p.ch].name+' +1 VIDA (100 MOEDAS)',CHARS[p.ch].shirt);}
@@ -485,7 +504,7 @@ function updateEnemies(){
     if(physics(e,0.32,6).hitX)e.dir*=-1;
     if(e.y>216){e.dead=true;e.flat=0;continue;}
     for(const p of players){
-      if(p.out||p.dead||p.held||e.dead||!ov(p,e))continue;
+      if(p.out||p.dead||p.held||p.done||e.dead||!ov(p,e))continue;
       if(p.vy>0&&p.pb<=e.y+5){e.dead=true;e.flat=30;p.vy=-4.2;p.onGround=false;SFX.stomp();}
       else hurt(p);
     }
@@ -567,11 +586,11 @@ function loadLevel(n){
   clearing=false;paused=false;megaTipT=0;
   for(const p of players){
     if(p.out)continue;
-    p.dead=false;p.held=false;p.vx=0;p.vy=0;p.mega=false;p.megaUsed=false;p.coy=0;
+    p.dead=false;p.done=false;p.held=false;p.vx=0;p.vy=0;p.mega=false;p.megaUsed=false;p.coy=0;
     p.onGround=false;p.inv=60;p.x=(L.boss?17*T:4*T)+p.i*14;p.y=gY(p);
   }
   camX=0;introT=100;
-  net.gb=[];
+  net.gb=[];net.gr=[];
   if(net.role==='host'&&net.conn)net.conn.send({t:'lv',n,boss:!!L.boss,w:L.w,g:L.g,flagX:L.flagX,
     coins:L.coins.map(c=>({x:c.x,y:c.y})),th:THEMES.indexOf(curTheme),md:mode});
 }
@@ -591,8 +610,10 @@ function updatePlay(){
   if(boss)updateBoss();
   if(!boss&&!clearing){
     for(const p of players){
-      if(!p.out&&!p.dead&&p.x+p.w>=L.flagX){clearing=true;clearT=150;break;}
+      if(!p.out&&!p.done&&!p.dead&&p.x+p.w>=L.flagX){p.done=true;p.vx=0;SFX.item();}
     }
+    const pend=players.filter(p=>!p.out&&!p.done);
+    if(pend.length===0&&players.some(p=>!p.out)){clearing=true;clearT=150;}
   }
 
 }
@@ -723,12 +744,12 @@ function sendInput(){
 function snapshot(){
   return {t:'st',st:state,md:mode,lvl,cx:camX,ic:introT,cl:clearing,ct:clearT,
     p:players.map(p=>({x:p.x,y:p.y,vx:p.vx,vy:p.vy,w:p.w,h:p.h,ch:p.ch,big:p.big,lives:p.lives,coins:p.coins,
-      dead:p.dead,out:p.out,inv:p.inv,held:p.held,mega:p.mega,f:p.facing})),
+      dead:p.dead,out:p.out,done:p.done,inv:p.inv,held:p.held,mega:p.mega,f:p.facing})),
     e:L?L.enemies.map(e=>({x:e.x,y:e.y,dead:e.dead,flat:e.flat})):[],
     c:L?L.coins.map(c=>c.got):[],
     b:boss?{x:boss.x,y:boss.y,hp:boss.hp,max:boss.max,inv:boss.inv,flash:boss.flash,dead:boss.dead,dying:boss.dying}:null,
     po:popups.map(p=>({t:p.t,c:p.c,l:p.life})),
-    gb:net.gb.splice(0)
+    gb:net.gb.splice(0),gr:net.gr.splice(0)
   };
 }
 function applySnap(s){
@@ -740,6 +761,7 @@ function applySnap(s){
     L.enemies=s.e;
     s.c.forEach((g,i)=>{if(L.coins[i])L.coins[i].got=g;});
     (s.gb||[]).forEach(([tx,ty])=>{L.g[ty][tx]=0;});
+    (s.gr||[]).forEach(([tx,ty])=>{L.g[ty][tx]=3;});
   }
   boss=s.b?Object.assign({grab:null,w:36,h:36},s.b):null;
   popups=s.po.map(p=>({t:p.t,c:p.c,life:p.l}));
@@ -1052,6 +1074,7 @@ function drawTitle(){
     txt((sel?'> ':'  ')+o,W/2,80+i*16,dis?'#666':(sel?'#fff':'#bbb'),2,'center');
   });
   if(net.msg&&msgT>0)txt(net.msg,W/2,170,'#ffd23f',1,'center');
+  txt('VERSÃO: V9',W-4,H-9,'#fff',1,'right');
   txt('SETAS MOVEM | ENTER/A ESCOLHE',W/2,190,'#fff',1,'center');
   txt('Z/ESPAÇO PULA | 2X NO AR = MEGA',W/2,202,'#fff',1,'center');
 }
@@ -1120,6 +1143,7 @@ function drawOptions(){
   txt(optRow===3?'>':' ',12,rows[3]+1,'#fff',1);
   txt('VOLTAR',24,rows[3]+1,'#fff',1);
 
+  txt('VERSÃO: V9',W-4,H-9,'#fff',1,'right');
   txt('DIFÍCIL: MAIS INIMIGOS E',W/2,190,'#ddd',1,'center');
   txt('CHEFE COM MAIS VIDA',W/2,200,'#ddd',1,'center');
   txt('ESC VOLTA',W/2,212,'#ddd',1,'center');
@@ -1234,7 +1258,8 @@ function camFor(p,vw){return Math.max(0,Math.min(L.w*T-vw,p.x+p.w/2-vw/2));}
 let splitOn=false;
 function viewports(){
   const alive=players.filter(p=>!p.out);
-  if(!net.role&&nP===2&&alive.length===2){
+  const doneAny=players.some(p=>p.done);
+  if(!net.role&&nP===2&&alive.length===2&&!doneAny){
     // co-op local: tela só se divide quando os jogadores se afastam muito
     const d=Math.abs(players[0].x-players[1].x);
     if(splitOn&&d<150)splitOn=false;
@@ -1245,8 +1270,10 @@ function viewports(){
   }
   splitOn=false;
   let p=null;
-  if(net.role)p=players[net.role==='guest'?1:0]||players[0];
-  else p=alive[0]||players[0];
+  if(net.role){
+    const mine=players[net.role==='guest'?1:0]||players[0];
+    p=(!mine.done&&!mine.out)?mine:(players.find(q=>q!==mine&&!q.out&&!q.done)||mine);
+  }else p=alive.find(q=>!q.done)||alive[0]||players[0];
   if(!p)return [{x:0,w:W,cam:0}];
   return [{x:0,w:W,cam:camFor(p,W)}];
 }
@@ -1269,6 +1296,13 @@ function drawWorld(){
     txt(c.name+' VIDAS '+(p.out?0:p.lives)+' MOEDAS '+p.coins,4,14+i*10,c.shirt,1);
   });
   popups.forEach((p,i)=>txt(p.t,W-4,4+i*9,p.c,1,'right'));
+  if(!boss&&!clearing&&players.some(p=>p.done)){
+    const pend=players.filter(p=>!p.out&&!p.done);
+    if(pend.length){
+      rc(40,96,176,22,'rgba(0,0,0,.7)');
+      txt('ESPERANDO '+pend.map(p=>'P'+(p.i+1)).join(' E '),W/2,103,'#ffd23f',1,'center');
+    }
+  }
   if(introT>0){
     rc(24,84,208,50,'rgba(0,0,0,.75)');
     txt(boss?'CHEFE: GORVAX':'FASE '+lvl,W/2,94,'#ffd23f',2,'center');
@@ -1327,7 +1361,6 @@ function renderInner(){
 
 function render(){
   renderInner();
-  txt('VERSÃO: V8',W-4,H-9,'#fff',1,'right');
 }
 
 /* ---------- LOOP ---------- */
