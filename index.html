@@ -332,7 +332,7 @@ function bindBtn(id,fn,act){
 }
 bindBtn('tl',v=>touch.l=v,'left');
 bindBtn('tr',v=>touch.r=v,'right');
-bindBtn('tj',()=>{jumpQ[0]=true;},'ok');
+bindBtn('tj',v=>{if(v)jumpQ[0]=true;},'ok');
 bindBtn('tp',()=>{},'pausebtn');
 
 function padEdge(k,i){
@@ -594,14 +594,7 @@ function updatePlay(){
       if(!p.out&&!p.dead&&p.x+p.w>=L.flagX){clearing=true;clearT=150;break;}
     }
   }
-  if(boss){camX=(L.w*T-W)/2;}
-  else{
-    const act=players.filter(p=>!p.out&&!p.dead);
-    if(act.length){
-      const cx=act.reduce((s,p)=>s+p.x,0)/act.length;
-      camX=Math.max(0,Math.min(L.w*T-W,cx-W/2));
-    }
-  }
+
 }
 function adjustOpt(d){
   if(optFromPause&&optRow!==0)return;
@@ -741,7 +734,7 @@ function snapshot(){
 function applySnap(s){
   if(s.st==='title'){leaveNet('ANFITRIÃO VOLTOU AO MENU');return;}
   if(!['play','over','win','levels'].includes(s.st))return;
-  state=s.st;mode=s.md;lvl=s.lvl;camX=s.cx;introT=s.ic;clearing=s.cl;clearT=s.ct;
+  state=s.st;mode=s.md;lvl=s.lvl;introT=s.ic;clearing=s.cl;clearT=s.ct;
   players=s.p.map((q,i)=>Object.assign({i,pb:0,megaUsed:false,coy:0,lastJump:-99},q));
   if(L){
     L.enemies=s.e;
@@ -1202,7 +1195,7 @@ function drawLevels(){
   txt('SETAS ESCOLHEM, ENTER JOGA',W/2,190,'#fff',1,'center');
   txt('ESC VOLTA',W/2,206,'#ddd',1,'center');
 }
-function drawWorld(){
+function drawWorldCore(){
   drawBG(false);
   drawTiles();
   for(const c of L.coins){
@@ -1235,6 +1228,40 @@ function drawWorld(){
     if(p.inv>0&&(frame>>2)%2===0)continue;
     drawChar(Math.round(p.x-camX)-1,Math.round(p.y),CHARS[p.ch],p.big);
   }
+}
+// câmera: cada jogador tem a sua; cada tela segue o próprio personagem
+function camFor(p,vw){return Math.max(0,Math.min(L.w*T-vw,p.x+p.w/2-vw/2));}
+let splitOn=false;
+function viewports(){
+  const alive=players.filter(p=>!p.out);
+  if(!net.role&&nP===2&&alive.length===2){
+    // co-op local: tela só se divide quando os jogadores se afastam muito
+    const d=Math.abs(players[0].x-players[1].x);
+    if(splitOn&&d<150)splitOn=false;
+    else if(!splitOn&&d>200)splitOn=true;
+    if(splitOn)return players.map((p,i)=>({x:i*128,w:128,cam:camFor(p,128)}));
+    const mid=(players[0].x+players[0].w/2+players[1].x+players[1].w/2)/2;
+    return [{x:0,w:W,cam:Math.max(0,Math.min(L.w*T-W,mid-W/2))}];
+  }
+  splitOn=false;
+  let p=null;
+  if(net.role)p=players[net.role==='guest'?1:0]||players[0];
+  else p=alive[0]||players[0];
+  if(!p)return [{x:0,w:W,cam:0}];
+  return [{x:0,w:W,cam:camFor(p,W)}];
+}
+function drawWorld(){
+  const vps=viewports();
+  for(const v of vps){
+    ctx.save();
+    ctx.beginPath();ctx.rect(v.x,0,v.w,H);ctx.clip();
+    ctx.translate(v.x,0);
+    camX=v.cam;
+    drawWorldCore();
+    ctx.restore();
+  }
+  if(vps.length===2)rc(127,0,2,H,'#000');
+  camX=vps[0].cam;
   const label=boss?'CHEFE':mode==='inf'?'INFINITO FASE '+lvl:'FASE '+lvl+'/'+TOTAL;
   txt(label,4,4,'#fff',1);
   players.forEach((p,i)=>{
@@ -1254,7 +1281,7 @@ function drawWorld(){
     else txt('FASE LIMPA!',W/2,106,'#ffd23f',2,'center');
   }
 }
-function render(){
+function renderInner(){
   document.getElementById('tp').style.display=(TOUCH&&(state==='play'||state==='pause'))?'flex':'none';
   if(state==='text')placeTi();
   ctx.setTransform(1,0,0,1,0,0);
@@ -1296,6 +1323,11 @@ function render(){
   }
   if(!L){rc(0,0,W,H,'#000');txt('CONECTANDO...',W/2,H/2,'#fff',1,'center');return;}
   drawWorld();
+}
+
+function render(){
+  renderInner();
+  txt('VERSÃO: V8',W-4,H-9,'#fff',1,'right');
 }
 
 /* ---------- LOOP ---------- */
