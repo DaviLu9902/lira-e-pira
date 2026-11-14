@@ -148,12 +148,13 @@ const NET_OPTS=[
 ];
 const TITLE_OPTS=['JOGAR','MODO CO-OP LOCAL','ONLINE','OPÇÕES','TELA CHEIA'];
 
-let frame=0,state='title',mode='hist',mode_=0,nP=1,L=null,players=[],boss=null;
+let frame=0,state='ask',mode='hist',mode_=0,nP=1,L=null,players=[],boss=null;
 const CH=[0,1];
 let camX=0,lvl=1,introT=0,paused=false,clearing=false,clearT=0,endT=0;
 let vol=7,themeSel=4,diff=0,optRow=0,modeOpt=0,netOpt=0,selL=0,curTheme=THEMES[0],popups=[],megaTipT=0,msgT=0;
 let coop=false,c1=0,c2=1,d1=false,d2=false,selMsg='',gc=1;
 let pauseSel=0,optFromPause=false;
+let tutStep=0,tutN=0,tutM=0,tutT=0,bossMsg=false,askSel=0;
 let tmode=null;
 const held=new Set(),jumpQ=[false,false],menuQ=[],touch={l:false,r:false};
 const padPrev=[{},{}];
@@ -470,8 +471,8 @@ function updatePlayer(p,i){
   p.vx=p.onGround?dir*2.2:p.vx+(dir*2.2-p.vx)*0.12;
   if(p.onGround)p.coy=6;else if(p.coy>0)p.coy--;
   if(inp.j){
-    if(p.onGround||p.coy>0){p.vy=-5;p.onGround=false;p.coy=0;p.lastJump=frame;p.megaUsed=false;SFX.jump();}
-    else if(!p.megaUsed&&frame-p.lastJump<=16){p.vy=-7.2;p.mega=true;p.megaUsed=true;SFX.mega();}
+    if(p.onGround||p.coy>0){p.vy=-5;p.onGround=false;p.coy=0;p.lastJump=frame;p.megaUsed=false;SFX.jump();if(mode==='tut')tutN++;}
+    else if(!p.megaUsed&&frame-p.lastJump<=16){p.vy=-7.2;p.mega=true;p.megaUsed=true;SFX.mega();if(mode==='tut')tutM++;}
   }
   const wasMega=p.mega;
   const r=physics(p,0.32,6);
@@ -590,9 +591,31 @@ function loadLevel(n){
     p.onGround=false;p.inv=60;p.x=(L.boss?17*T:4*T)+p.i*14;p.y=gY(p);
   }
   camX=0;introT=100;
+  bossMsg=!!L.boss&&mode!=='tut';if(bossMsg)introT=0;
   net.gb=[];net.gr=[];
   if(net.role==='host'&&net.conn)net.conn.send({t:'lv',n,boss:!!L.boss,w:L.w,g:L.g,flagX:L.flagX,
     coins:L.coins.map(c=>({x:c.x,y:c.y})),th:THEMES.indexOf(curTheme),md:mode});
+}
+function genTut(){
+  const w=40,g=Array.from({length:14},()=>new Array(w).fill(0));
+  for(let x=0;x<w;x++){g[12][x]=1;g[13][x]=1;}
+  g[8][22]=3;g[8][23]=3;
+  return {boss:false,w,g,enemies:[],coins:[],flagX:1e9,brk:{},tut:true};
+}
+function startTutorial(){
+  mode='tut';nP=1;CH[0]=0;
+  resetPlayers();popups=[];
+  loadLevel(1);
+  L=genTut();boss=null;bossMsg=false;
+  for(const p of players){p.x=4*T;p.y=gY(p);}
+  introT=0;tutStep=0;tutN=0;tutM=0;tutT=0;
+  state='play';
+}
+function tutUpdate(){
+  tutT++;
+  if(tutStep===0&&tutN>0){tutStep=1;tutT=0;}
+  else if(tutStep===1&&tutM>0){tutStep=2;tutT=0;}
+  else if(tutStep===2&&(L.g[8][22]===0||L.g[8][23]===0)){tutStep=3;tutT=0;}
 }
 function nextLevel(){
   if(mode!=='inf'&&lvl>=TOTAL){state='win';endT=900;return;}
@@ -600,6 +623,7 @@ function nextLevel(){
   loadLevel(lvl+1);
 }
 function updatePlay(){
+  if(mode==='tut')tutUpdate();
   if(players.every(p=>p.out)){state='over';endT=240;return;}
   for(let i=0;i<players.length;i++){
     const p=players[i];
@@ -742,7 +766,7 @@ function sendInput(){
   net.conn.send({t:'in',l,r,j});
 }
 function snapshot(){
-  return {t:'st',st:state,md:mode,lvl,cx:camX,ic:introT,cl:clearing,ct:clearT,
+  return {t:'st',st:state,md:mode,lvl,cx:camX,ic:introT,bm:bossMsg,cl:clearing,ct:clearT,
     p:players.map(p=>({x:p.x,y:p.y,vx:p.vx,vy:p.vy,w:p.w,h:p.h,ch:p.ch,big:p.big,lives:p.lives,coins:p.coins,
       dead:p.dead,out:p.out,done:p.done,inv:p.inv,held:p.held,mega:p.mega,f:p.facing})),
     e:L?L.enemies.map(e=>({x:e.x,y:e.y,dead:e.dead,flat:e.flat})):[],
@@ -755,7 +779,7 @@ function snapshot(){
 function applySnap(s){
   if(s.st==='title'){leaveNet('ANFITRIÃO VOLTOU AO MENU');return;}
   if(!['play','over','win','levels'].includes(s.st))return;
-  state=s.st;mode=s.md;lvl=s.lvl;introT=s.ic;clearing=s.cl;clearT=s.ct;
+  state=s.st;mode=s.md;lvl=s.lvl;introT=s.ic;bossMsg=!!s.bm;clearing=s.cl;clearT=s.ct;
   players=s.p.map((q,i)=>Object.assign({i,pb:0,megaUsed:false,coy:0,lastJump:-99},q));
   if(L){
     L.enemies=s.e;
@@ -800,6 +824,15 @@ function update(){
         else{ti.blur();tmode.onOk(v);}
         break;
       }
+    }
+    return;
+  }
+  if(state==='ask'){
+    for(const a of acts){
+      if(a==='left')askSel=0;
+      else if(a==='right')askSel=1;
+      else if(a==='ok'){if(askSel===0)startTutorial();else state='title';break;}
+      else if(a==='back'){state='title';break;}
     }
     return;
   }
@@ -941,6 +974,8 @@ function update(){
     return;
   }
   if(state==='play'){
+    if(mode==='tut'&&tutStep===3&&tutT>40&&acts.includes('ok')){state='title';return;}
+    if(bossMsg){if(acts.includes('ok'))bossMsg=false;return;}
     if(introT>0){introT--;return;}
     if(clearing){if(--clearT<=0)nextLevel();return;}
     updatePlay();
@@ -1074,9 +1109,7 @@ function drawTitle(){
     txt((sel?'> ':'  ')+o,W/2,80+i*16,dis?'#666':(sel?'#fff':'#bbb'),2,'center');
   });
   if(net.msg&&msgT>0)txt(net.msg,W/2,170,'#ffd23f',1,'center');
-  txt('VERSÃO: V9',W-4,H-9,'#fff',1,'right');
-  txt('SETAS MOVEM | ENTER/A ESCOLHE',W/2,190,'#fff',1,'center');
-  txt('Z/ESPAÇO PULA | 2X NO AR = MEGA',W/2,202,'#fff',1,'center');
+  txt('VERSÃO: V10',W-4,H-9,'#fff',1,'right');
 }
 function drawNet(){
   drawBG(true);
@@ -1143,7 +1176,7 @@ function drawOptions(){
   txt(optRow===3?'>':' ',12,rows[3]+1,'#fff',1);
   txt('VOLTAR',24,rows[3]+1,'#fff',1);
 
-  txt('VERSÃO: V9',W-4,H-9,'#fff',1,'right');
+  txt('VERSÃO: V10',W-4,H-9,'#fff',1,'right');
   txt('DIFÍCIL: MAIS INIMIGOS E',W/2,190,'#ddd',1,'center');
   txt('CHEFE COM MAIS VIDA',W/2,200,'#ddd',1,'center');
   txt('ESC VOLTA',W/2,212,'#ddd',1,'center');
@@ -1154,6 +1187,28 @@ function drawPause(){
   const fs=document.fullscreenElement?'SAIR DA TELA CHEIA':'TELA CHEIA';
   const opts=['VOLTAR AO JOGO','SAIR PARA O MENU',fs,'OPÇÕES'];
   opts.forEach((o,i)=>txt((pauseSel===i?'> ':'  ')+o,W/2,100+i*20,pauseSel===i?'#fff':'#bbb',2,'center'));
+}
+function drawAsk(){
+  drawBG(true);
+  txt('VOCÊ QUER FAZER O TUTORIAL??',W/2,70,'#ffd23f',1,'center');
+  const xs=[96,160];
+  if(askSel===0)rc(xs[0]-30,108,60,22,'rgba(255,255,255,.25)');
+  else rc(xs[1]-30,108,60,22,'rgba(255,255,255,.25)');
+  txt('SIM',xs[0],114,askSel===0?'#fff':'#bbb',2,'center');
+  txt('|',128,114,'#fff',2,'center');
+  txt('NÃO',xs[1],114,askSel===1?'#fff':'#bbb',2,'center');
+  txt('SETAS ESCOLHEM, ENTER CONFIRMA',W/2,190,'#ddd',1,'center');
+}
+function drawTutBox(){
+  rc(0,0,W,32,'rgba(0,0,0,.65)');
+  const lines=[
+    ['PASSO 1: 1 PULO = PULO NORMAL','APERTE O BOTÃO DE PULAR'],
+    ['PASSO 2: 2 CLIQUES = MEGA PULO','FAÇA O MEGA PULO PARA AVANÇAR'],
+    ['PASSO 3: O MEGA PULO QUEBRA CAIXA','PULE POR CIMA DA CAIXA AMARELA'],
+    ['TUTORIAL CONCLUÍDO!','APERTE A OU ENTER PARA VOLTAR']
+  ][tutStep];
+  txt(lines[0],W/2,5,'#ffd23f',1,'center');
+  txt(lines[1],W/2,18,'#fff',1,'center');
 }
 function drawBoxes(p1Idx,p2Idx,hint){
   // desenha as duas opções de personagem com P1/P2 em cima
@@ -1290,8 +1345,9 @@ function drawWorld(){
   if(vps.length===2)rc(127,0,2,H,'#000');
   camX=vps[0].cam;
   const label=boss?'CHEFE':mode==='inf'?'INFINITO FASE '+lvl:'FASE '+lvl+'/'+TOTAL;
-  txt(label,4,4,'#fff',1);
-  players.forEach((p,i)=>{
+  if(mode==='tut')drawTutBox();
+  else txt(label,4,4,'#fff',1);
+  if(mode!=='tut')players.forEach((p,i)=>{
     const c=CHARS[p.ch];
     txt(c.name+' VIDAS '+(p.out?0:p.lives)+' MOEDAS '+p.coins,4,14+i*10,c.shirt,1);
   });
@@ -1302,6 +1358,14 @@ function drawWorld(){
       rc(40,96,176,22,'rgba(0,0,0,.7)');
       txt('ESPERANDO '+pend.map(p=>'P'+(p.i+1)).join(' E '),W/2,103,'#ffd23f',1,'center');
     }
+  }
+  if(bossMsg){
+    rc(16,70,224,96,'rgba(0,0,0,.85)');
+    txt('PARA DAR DANO NO GORVAX,',W/2,82,'#ffd23f',1,'center');
+    txt('DÊ UM MEGA PULO NA CABEÇA DELE',W/2,96,'#fff',1,'center');
+    rc(92,122,72,22,'#ffd23f');rc(94,124,68,18,'#7a1f2b');
+    txt('AVANÇAR',W/2,131,'#fff',1,'center');
+    txt(net.role==='guest'?'AGUARDANDO O ANFITRIÃO':'APERTE A OU ENTER',W/2,156,'#ddd',1,'center');
   }
   if(introT>0){
     rc(24,84,208,50,'rgba(0,0,0,.75)');
@@ -1321,6 +1385,7 @@ function renderInner(){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.imageSmoothingEnabled=false;
   if(state==='title')return drawTitle();
+  if(state==='ask')return drawAsk();
   if(state==='text')return drawText();
   if(state==='net')return drawNet();
   if(state==='lobby')return drawLobby();
